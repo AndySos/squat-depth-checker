@@ -1,0 +1,135 @@
+"""Squat bottom-frame selection and depth classification."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from .constraints import ConstraintReport
+from .pose import LEFT_ANKLE, LEFT_HIP, LEFT_KNEE, RIGHT_ANKLE, RIGHT_HIP, RIGHT_KNEE
+from .temporal import CleanedPose
+
+
+SIDES = {
+    "left": {"hip": LEFT_HIP, "knee": LEFT_KNEE, "ankle": LEFT_ANKLE},
+    "right": {"hip": RIGHT_HIP, "knee": RIGHT_KNEE, "ankle": RIGHT_ANKLE},
+}
+
+
+@dataclass(frozen=True)
+class DepthResult:
+    label: str
+    side: str
+    bottom_frame_index: int
+    bottom_timestamp_ms: int
+    hip_knee_margin: float
+    confidence: float
+    low_confidence_frame_count: int
+    suspicious_frame_count: int
+    bottom_region_flagged: bool
+    reason: str
+
+
+def analyze_depth(
+    cleaned: CleanedPose,
+    constraints: ConstraintReport | None = None,
+    depth_margin: float = 0.0,
+    bottom_window: int = 2,
+    max_bottom_flagged_fraction: float = 0.4,
+) -> DepthResult:
+    """Classify squat depth from cleaned pose trajectory."""
+
+    side = choose_visible_side(cleaned)
+    joints = SIDES[side]
+    hip = joints["hip"]
+    knee = joints["knee"]
+
+    hip_y = cleaned.landmarks[:, hip, 1]
+    if np.all(np.isnan(hip_y)):
+        return _uncertain(cleaned, side, "No usable hip trajectory")
+
+    bottom_pos = int(np.nanargmax(hip_y))
+    start = max(0, bottom_pos - bottom_window)
+    end = min(cleaned.frame_count, bottom_pos + bottom_window + 1)
+    region = slice(start, end)
+
+    bottom_low_conf = np.any(cleaned.low_confidence[region, [hip, knee]], axis=1)
+    bottom_jumps = np.any(cleaned.jump_flags[region, [hip, knee]], axis=1)
+    bottom_constraints = (
+        constraints.frame_flags[region]
+        if constraints is not None
+        else np.zeros(end - start, dtype=bool)
+    )
+    bottom_flagged = bottom_low_conf | bottom_jumps | bottom_constraints
+    flagged_fraction = float(np.mean(bottom_flagged)) if len(bottom_flagged) else 1.0
+
+    margin = float(cleaned.landmarks[bottom_pos, hip, 1] - cleaned.landmarks[bottom_pos, knee, 1])
+    low_conf_count = int(np.any(cleaned.low_confidence[:, [hip, knee]], axis=1).sum())
+    suspicious_count = int(np.any(cleaned.jump_flags[:, [hip, knee]], axis=1).sum())
+    if constraints is not None:
+        suspicious_count += int(constraints.frame_flags.sum())
+
+    if np.isnan(margin):
+        label = "uncertain"
+        reason = "Hip-knee margin is unavailable at the selected bottom frame"
+    elif flagged_fraction > max_bottom_flagged_fraction:
+        label = "uncertain"
+        reason = "Too many low-confidence or physically suspicious frames near the bottom"
+    elif margin > depth_margin:
+        label = "to_depth"
+        reason = "Hip landmark is below knee landmark at the cleaned bottom frame"
+    else:
+        label = "not_to_depth"
+        reason = "Hip landmark is not below knee landmark at the cleaned bottom frame"
+
+    confidence = _confidence_from_flags(flagged_fraction, low_conf_count, suspicious_count, cleaned.frame_count)
+    return DepthResult(
+        label=label,
+        side=side,
+        bottom_frame_index=int(cleaned.frame_indices[bottom_pos]),
+        bottom_timestamp_ms=int(cleaned.timestamps_ms[bottom_pos]),
+        hip_knee_margin=margin,
+        confidence=confidence,
+        low_confidence_frame_count=low_conf_count,
+        suspicious_frame_count=suspicious_count,
+        bottom_region_flagged=bool(flagged_fraction > 0),
+        reason=reason,
+    )
+
+
+def choose_visible_side(cleaned: CleanedPose) -> str:
+    """Choose the side with stronger average hip/knee/ankle visibility."""
+
+    scores = {}
+    for side, joints in SIDES.items():
+        indices = [joints["hip"], joints["knee"], joints["ankle"]]
+        with np.errstate(all="ignore"):
+            scores[side] = float(np.nanmean(cleaned.visibility[:, indices]))
+    return "left" if scores["left"] >= scores["right"] else "right"
+
+
+def _confidence_from_flags(
+    bottom_flagged_fraction: float,
+    low_conf_count: int,
+    suspicious_count: int,
+    frame_count: int,
+) -> float:
+    global_penalty = (low_conf_count + suspicious_count) / max(frame_count * 2, 1)
+    confidence = 1.0 - 0.6 * bottom_flagged_fraction - 0.4 * min(global_penalty, 1.0)
+    return float(np.clip(confidence, 0.0, 1.0))
+
+
+def _uncertain(cleaned: CleanedPose, side: str, reason: str) -> DepthResult:
+    return DepthResult(
+        label="uncertain",
+        side=side,
+        bottom_frame_index=int(cleaned.frame_indices[0]),
+        bottom_timestamp_ms=int(cleaned.timestamps_ms[0]),
+        hip_knee_margin=float("nan"),
+        confidence=0.0,
+        low_confidence_frame_count=int(np.any(cleaned.low_confidence, axis=1).sum()),
+        suspicious_frame_count=int(np.any(cleaned.jump_flags, axis=1).sum()),
+        bottom_region_flagged=True,
+        reason=reason,
+    )

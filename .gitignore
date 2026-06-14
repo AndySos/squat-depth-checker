@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# Colab and local secrets
+.env
+.env.*
+secrets/
+*.key
+*.pem
+
+# Local data and private media
+data/
+videos/
+media/
+raw/
+private/
+models/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Generated outputs
+outputs/*
+!outputs/.gitkeep
+results/
+artifacts/
+annotated/
+work/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build/package outputs
+build/
+dist/
+*.egg-info/
