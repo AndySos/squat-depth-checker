@@ -2,7 +2,7 @@
 
 This repository is the starting point for a squat-depth checker that takes a side-view video of a squat and determines whether the squat reached depth.
 
-The first prototype uses off-the-shelf pose estimation, not model fine-tuning. It extracts body landmarks from video, cleans the landmark trajectory with lightweight temporal checks, identifies the bottom of the squat, and evaluates depth using a judge-like side-view proxy: the hip position relative to the knee position.
+The first prototype uses off-the-shelf pose estimation, not model fine-tuning. It extracts body landmarks from video, cleans the landmark trajectory with lightweight temporal checks, identifies the bottom of the squat, and evaluates depth using sustained side-view evidence: the hip position relative to the knee position over the bottom phase, not just one threshold-crossing frame.
 
 Important caveat: the current depth rule uses pose-estimated hip and knee landmarks as proxies for the competition concepts of hip crease and top of knee. These landmarks are closer to joint centers than surface anatomy, so the MVP should be interpreted as an explainable prototype rather than a rules-accurate judging system.
 

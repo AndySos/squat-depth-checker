@@ -82,6 +82,28 @@ class SquatDepthTests(unittest.TestCase):
         self.assertEqual(trace.labels, ["not_to_depth", "not_to_depth", "to_depth", "not_to_depth", "not_to_depth"])
         self.assertEqual(len(trace.margins), 5)
 
+    def test_sustained_depth_evidence_near_bottom_classifies_to_depth(self):
+        frames = [make_frame(i, y) for i, y in enumerate([0.45, 0.55, 0.62, 0.67, 0.64, 0.55])]
+        cleaned = clean_trajectory(frames, median_window=1, jump_threshold=1.0)
+        result = analyze_depth(cleaned, min_reliable_depth_run=2)
+        self.assertEqual(result.label, "to_depth")
+        self.assertTrue(result.depth_run_overlaps_bottom)
+        self.assertGreaterEqual(result.max_reliable_depth_run, 2)
+
+    def test_single_depth_blip_away_from_bottom_is_uncertain(self):
+        frames = [
+            make_frame(0, 0.50, left_knee_y=0.60),
+            make_frame(1, 0.62, left_knee_y=0.60),
+            make_frame(2, 0.56, left_knee_y=0.60),
+            make_frame(3, 0.75, left_knee_y=0.80),
+            make_frame(4, 0.56, left_knee_y=0.60),
+        ]
+        cleaned = clean_trajectory(frames, median_window=1, jump_threshold=1.0)
+        result = analyze_depth(cleaned, min_reliable_depth_run=2, bottom_window=1)
+        self.assertEqual(result.label, "uncertain")
+        self.assertFalse(result.depth_run_overlaps_bottom)
+        self.assertEqual(result.reliable_depth_frame_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
