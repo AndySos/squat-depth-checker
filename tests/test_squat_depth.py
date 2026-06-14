@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from squat_depth.constraints import evaluate_constraints
-from squat_depth.depth import analyze_depth
+from squat_depth.depth import analyze_depth, frame_depth_trace
 from squat_depth.pose import LandmarkFrame, LEFT_ANKLE, LEFT_HIP, LEFT_KNEE, RIGHT_ANKLE, RIGHT_HIP, RIGHT_KNEE
 from squat_depth.temporal import clean_trajectory
 
@@ -74,6 +74,13 @@ class SquatDepthTests(unittest.TestCase):
         cleaned = clean_trajectory(frames, max_gap=1, median_window=1)
         result = analyze_depth(cleaned, evaluate_constraints(cleaned))
         self.assertEqual(result.label, "uncertain")
+
+    def test_frame_depth_trace_labels_each_frame(self):
+        frames = [make_frame(i, y) for i, y in enumerate([0.50, 0.57, 0.62, 0.57, 0.50])]
+        cleaned = clean_trajectory(frames, median_window=1)
+        trace = frame_depth_trace(cleaned, side="left")
+        self.assertEqual(trace.labels, ["not_to_depth", "not_to_depth", "to_depth", "not_to_depth", "not_to_depth"])
+        self.assertEqual(len(trace.margins), 5)
 
 
 if __name__ == "__main__":

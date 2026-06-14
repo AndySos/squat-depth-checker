@@ -10,7 +10,7 @@ from .constraints import evaluate_constraints
 from .depth import analyze_depth
 from .pose import run_pose_landmarker
 from .temporal import clean_trajectory
-from .visualize import save_annotated_bottom_frame
+from .visualize import save_annotated_bottom_frame, save_annotated_video
 
 
 def analyze_video(
@@ -32,10 +32,18 @@ def analyze_video(
         result,
         output_path=output / "bottom_frame.jpg",
     )
+    annotated_video_path = save_annotated_video(
+        video_path,
+        cleaned,
+        result,
+        constraints=constraint_report,
+        output_path=output / "annotated_depth.mp4",
+    )
 
     return {
         "result": asdict(result),
         "annotated_bottom_frame": str(annotated_path),
+        "annotated_video": str(annotated_video_path),
         "frame_count": cleaned.frame_count,
         "constraint_flagged_frames": int(constraint_report.frame_flags.sum()),
         "jump_flagged_frames": int(cleaned.jump_flags.any(axis=1).sum()),

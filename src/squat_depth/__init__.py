@@ -1,6 +1,6 @@
 """Squat depth checker MVP package."""
 
-from .depth import DepthResult, analyze_depth
+from .depth import DepthResult, FrameDepthTrace, analyze_depth, frame_depth_trace
 from .pose import LandmarkFrame
 
-__all__ = ["DepthResult", "LandmarkFrame", "analyze_depth"]
+__all__ = ["DepthResult", "FrameDepthTrace", "LandmarkFrame", "analyze_depth", "frame_depth_trace"]

@@ -31,6 +31,14 @@ class DepthResult:
     reason: str
 
 
+@dataclass(frozen=True)
+class FrameDepthTrace:
+    labels: list[str]
+    margins: np.ndarray
+    side: str
+    flagged: np.ndarray
+
+
 def analyze_depth(
     cleaned: CleanedPose,
     constraints: ConstraintReport | None = None,
@@ -96,6 +104,37 @@ def analyze_depth(
         bottom_region_flagged=bool(flagged_fraction > 0),
         reason=reason,
     )
+
+
+def frame_depth_trace(
+    cleaned: CleanedPose,
+    constraints: ConstraintReport | None = None,
+    side: str | None = None,
+    depth_margin: float = 0.0,
+) -> FrameDepthTrace:
+    """Classify every cleaned frame as to-depth, not-to-depth, or uncertain."""
+
+    selected_side = side or choose_visible_side(cleaned)
+    joints = SIDES[selected_side]
+    hip = joints["hip"]
+    knee = joints["knee"]
+
+    margins = cleaned.landmarks[:, hip, 1] - cleaned.landmarks[:, knee, 1]
+    low_conf = np.any(cleaned.low_confidence[:, [hip, knee]], axis=1)
+    jumps = np.any(cleaned.jump_flags[:, [hip, knee]], axis=1)
+    constraint_flags = constraints.frame_flags if constraints is not None else np.zeros(cleaned.frame_count, dtype=bool)
+    flagged = low_conf | jumps | constraint_flags | np.isnan(margins)
+
+    labels: list[str] = []
+    for margin, is_flagged in zip(margins, flagged):
+        if is_flagged:
+            labels.append("uncertain")
+        elif margin > depth_margin:
+            labels.append("to_depth")
+        else:
+            labels.append("not_to_depth")
+
+    return FrameDepthTrace(labels=labels, margins=margins, side=selected_side, flagged=flagged)
 
 
 def choose_visible_side(cleaned: CleanedPose) -> str:

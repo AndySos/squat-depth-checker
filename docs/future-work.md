@@ -22,6 +22,8 @@ The first implementation intentionally stays heuristic and inspectable. These ar
 - Segment multiple reps and report each rep separately.
 - Detect setup, descent, bottom, ascent, and lockout phases.
 - Add camera-angle warnings when the view is not sufficiently side-on.
+- Estimate hip crease and top-of-knee surface positions instead of using joint-center pose landmarks directly.
+- Calibrate anatomy-specific offsets using segmentation masks, clothing/body contours, or manually labeled frames.
 - Add richer feedback beyond depth, such as excessive forward knee travel or torso collapse, only after depth is reliable.
 
 ## Evaluation
