@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-from .pose import LEFT_HIP, LEFT_KNEE, RIGHT_HIP, RIGHT_KNEE, LandmarkFrame
+from .pose import LEFT_ANKLE, LEFT_HIP, LEFT_KNEE, RIGHT_ANKLE, RIGHT_HIP, RIGHT_KNEE, LandmarkFrame
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,7 @@ def clean_trajectory(
     median_window: int = 5,
     jump_threshold: float = 0.12,
     plausibility_velocity_threshold: float = 0.16,
+    plausibility_axis_velocity_threshold: float = 0.12,
     standing_baseline_frames: int = 60,
 ) -> CleanedPose:
     """Reject implausible points, interpolate short gaps, smooth, and flag jumps."""
@@ -54,6 +55,7 @@ def clean_trajectory(
         low_confidence,
         baseline_frames=standing_baseline_frames,
         velocity_threshold=plausibility_velocity_threshold,
+        axis_velocity_threshold=plausibility_axis_velocity_threshold,
     )
     masked = raw.copy()
     masked[low_confidence | implausible] = np.nan
@@ -82,11 +84,13 @@ def flag_implausible_landmarks(
     invalid: np.ndarray,
     baseline_frames: int = 60,
     velocity_threshold: float = 0.10,
+    axis_velocity_threshold: float = 0.12,
+    ordering_tolerance: float = 0.03,
 ) -> np.ndarray:
-    """Flag squat-specific hip/knee outliers before interpolation."""
+    """Flag squat-specific lower-body outliers before interpolation."""
 
     flags = np.zeros(values.shape[:2], dtype=bool)
-    tracked_joints = (LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE)
+    tracked_joints = (LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE)
     frame_limit = min(values.shape[0], baseline_frames)
     if frame_limit <= 0:
         return flags
@@ -108,7 +112,12 @@ def flag_implausible_landmarks(
             if len(baseline_values) == 0:
                 baseline_values = y[:frame_limit][baseline_valid]
             baseline_y = float(np.nanpercentile(baseline_values, 5))
-            max_raise = 0.08 if joint in (LEFT_HIP, RIGHT_HIP) else 0.07
+            if joint in (LEFT_HIP, RIGHT_HIP):
+                max_raise = 0.08
+            elif joint in (LEFT_KNEE, RIGHT_KNEE):
+                max_raise = 0.07
+            else:
+                max_raise = 0.05
             flags[:, joint] |= valid & (y < baseline_y - max_raise)
 
         previous_good = None
@@ -117,13 +126,34 @@ def flag_implausible_landmarks(
                 continue
             point = values[frame_index, joint, :2]
             if previous_good is not None:
-                delta = float(np.linalg.norm(point - previous_good))
-                if delta > velocity_threshold:
+                delta_xy = np.abs(point - previous_good)
+                delta = float(np.linalg.norm(delta_xy))
+                if delta > velocity_threshold or np.any(delta_xy > axis_velocity_threshold):
                     flags[frame_index, joint] = True
                     continue
             previous_good = point
 
+    _flag_lower_body_ordering(values, invalid, flags, ordering_tolerance=ordering_tolerance)
     return flags
+
+
+def _flag_lower_body_ordering(
+    values: np.ndarray,
+    invalid: np.ndarray,
+    flags: np.ndarray,
+    ordering_tolerance: float,
+) -> None:
+    for hip, knee, ankle in (
+        (LEFT_HIP, LEFT_KNEE, LEFT_ANKLE),
+        (RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE),
+    ):
+        knee_y = values[:, knee, 1]
+        ankle_y = values[:, ankle, 1]
+        knee_valid = (~invalid[:, knee]) & ~np.isnan(knee_y)
+        ankle_valid = (~invalid[:, ankle]) & ~np.isnan(ankle_y)
+
+        ankle_above_knee = ankle_valid & knee_valid & (ankle_y < knee_y - ordering_tolerance)
+        flags[ankle_above_knee, ankle] = True
 
 
 def interpolate_short_gaps(values: np.ndarray, max_gap: int = 5) -> tuple[np.ndarray, np.ndarray]:

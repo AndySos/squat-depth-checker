@@ -11,6 +11,7 @@ This document will collect literature notes, prototype links, compute notes, and
 - Use simple physical consistency checks, especially hip-knee and knee-ankle segment-length stability.
 - Treat the overall depth decision as sustained evidence near the squat bottom, not a single-frame threshold crossing. A lone depth frame away from the cleaned bottom phase is suspicious; consecutive reliable depth frames around the bottom should increase confidence.
 - For occluded multi-rep videos, reject implausible hip/knee values before smoothing, interpolate only short rejected/missing spans, and score each segmented rep separately.
+- Treat ankle-above-knee ordering and rapid per-axis lower-body jumps as hard pre-smoothing implausibility signals. Avoid hard knee-vs-hip vertical ordering because the hip and knee landmarks can legitimately converge or cross in image y near depth.
 
 ## Hip Crease And Knee Caveat
 

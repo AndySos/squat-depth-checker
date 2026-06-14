@@ -49,19 +49,36 @@ class SquatDepthTests(unittest.TestCase):
     def test_short_missing_gap_is_interpolated(self):
         frames = [make_frame(i, y) for i, y in enumerate([0.40, 0.50, 0.60, 0.70])]
         frames[2].visibility[LEFT_HIP] = 0.0
-        cleaned = clean_trajectory(frames, max_gap=2, median_window=1, plausibility_velocity_threshold=1.0)
+        cleaned = clean_trajectory(
+            frames,
+            max_gap=2,
+            median_window=1,
+            plausibility_velocity_threshold=1.0,
+            plausibility_axis_velocity_threshold=1.0,
+        )
         self.assertTrue(cleaned.interpolated[2, LEFT_HIP])
         self.assertFalse(np.isnan(cleaned.landmarks[2, LEFT_HIP, 1]))
 
     def test_large_jump_is_flagged(self):
         frames = [make_frame(i, y) for i, y in enumerate([0.40, 0.42, 0.95, 0.44])]
-        cleaned = clean_trajectory(frames, median_window=1, jump_threshold=0.20, plausibility_velocity_threshold=1.0)
+        cleaned = clean_trajectory(
+            frames,
+            median_window=1,
+            jump_threshold=0.20,
+            plausibility_velocity_threshold=1.0,
+            plausibility_axis_velocity_threshold=1.0,
+        )
         self.assertTrue(cleaned.jump_flags[2, LEFT_HIP])
 
     def test_impossible_segment_change_is_flagged(self):
         frames = [make_frame(i, 0.45) for i in range(5)]
         frames[2].landmarks[LEFT_KNEE] = [0.90, 0.55, 0.0]
-        cleaned = clean_trajectory(frames, median_window=1, plausibility_velocity_threshold=1.0)
+        cleaned = clean_trajectory(
+            frames,
+            median_window=1,
+            plausibility_velocity_threshold=1.0,
+            plausibility_axis_velocity_threshold=1.0,
+        )
         report = evaluate_constraints(cleaned, max_relative_change=0.30)
         self.assertTrue(report.frame_flags[2])
 
@@ -71,6 +88,23 @@ class SquatDepthTests(unittest.TestCase):
         cleaned = clean_trajectory(frames, median_window=1, plausibility_velocity_threshold=1.0)
         self.assertTrue(cleaned.implausible[8, LEFT_KNEE])
         self.assertTrue(cleaned.interpolated[8, LEFT_KNEE])
+
+    def test_ankle_above_knee_is_implausible(self):
+        frames = [make_frame(i, 0.45, left_knee_y=0.55) for i in range(8)]
+        frames[4].landmarks[LEFT_ANKLE, 1] = 0.48
+        cleaned = clean_trajectory(frames, median_window=1, plausibility_velocity_threshold=1.0)
+        self.assertTrue(cleaned.implausible[4, LEFT_ANKLE])
+
+    def test_fast_x_coordinate_change_is_implausible(self):
+        frames = [make_frame(i, 0.45, left_knee_y=0.55) for i in range(8)]
+        frames[4].landmarks[LEFT_KNEE, 0] = 0.75
+        cleaned = clean_trajectory(
+            frames,
+            median_window=1,
+            plausibility_velocity_threshold=1.0,
+            plausibility_axis_velocity_threshold=0.12,
+        )
+        self.assertTrue(cleaned.implausible[4, LEFT_KNEE])
 
     def test_long_occlusion_remains_missing_and_flagged(self):
         frames = [make_frame(i, 0.45, left_knee_y=0.55) for i in range(8)]
