@@ -4,6 +4,8 @@ This repository is the starting point for a squat-depth checker that takes a sid
 
 The first prototype uses off-the-shelf pose estimation, not model fine-tuning. It extracts body landmarks from video, cleans the landmark trajectory with lightweight temporal checks, identifies the bottom of the squat, and evaluates depth using sustained side-view evidence: the hip position relative to the knee position over the bottom phase, not just one threshold-crossing frame.
 
+For multi-rep videos, the current pipeline segments repeated descent-bottom-ascent cycles from the cleaned hip trajectory and reports per-rep depth verdicts. It also rejects implausible hip/knee points before smoothing, interpolates short bad spans, and keeps longer occlusions marked uncertain.
+
 Important caveat: the current depth rule uses pose-estimated hip and knee landmarks as proxies for the competition concepts of hip crease and top of knee. These landmarks are closer to joint centers than surface anatomy, so the MVP should be interpreted as an explainable prototype rather than a rules-accurate judging system.
 
 ## Initial Assumptions
@@ -22,8 +24,8 @@ The first notebook lives in `notebooks/squat_depth_mvp.ipynb` and is designed to
 2. Upload or mount a squat video.
 3. Run pose estimation on the video frames.
 4. Detect the bottom frame of the squat.
-5. Classify the squat as to-depth or not-to-depth.
-6. Export an annotated bottom frame and a per-frame annotated video with the decision and confidence warnings.
+5. Segment reps and classify each rep as to-depth, not-to-depth, or uncertain.
+6. Export an annotated bottom frame and a per-frame/per-rep annotated video with the decision and confidence warnings.
 
 Because the planned GitHub repo is private, the Colab flow may require signing into GitHub or uploading the notebook manually until sharing details are finalized.
 

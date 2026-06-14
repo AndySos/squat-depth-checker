@@ -19,7 +19,7 @@ The first implementation intentionally stays heuristic and inspectable. These ar
 
 ## Squat-Specific Analysis
 
-- Segment multiple reps and report each rep separately.
+- Improve multi-rep segmentation for partial reps, walk-in/walk-out footage, and long pauses between attempts.
 - Detect setup, descent, bottom, ascent, and lockout phases.
 - Add camera-angle warnings when the view is not sufficiently side-on.
 - Estimate hip crease and top-of-knee surface positions instead of using joint-center pose landmarks directly.

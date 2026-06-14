@@ -8,6 +8,7 @@ import numpy as np
 
 from .depth import DepthResult, FrameDepthTrace, SIDES, frame_depth_trace
 from .pose import iter_video_frames
+from .reps import RepSegment
 from .temporal import CleanedPose
 from .constraints import ConstraintReport
 
@@ -43,6 +44,8 @@ def save_annotated_video(
     cleaned: CleanedPose,
     result: DepthResult,
     constraints: ConstraintReport | None = None,
+    rep_segments: list[RepSegment] | None = None,
+    rep_results: list[DepthResult] | None = None,
     output_path: str | Path = "outputs/annotated_depth.mp4",
     fps: float | None = None,
 ) -> Path:
@@ -63,6 +66,7 @@ def save_annotated_video(
                 trace,
                 package_index,
                 overall_result=result,
+                rep_info=_rep_info_for_index(package_index, rep_segments, rep_results),
             )
             if writer is None:
                 height, width = annotated.shape[:2]
@@ -113,6 +117,7 @@ def draw_frame_depth(
     trace: FrameDepthTrace,
     trace_index: int,
     overall_result: DepthResult | None = None,
+    rep_info: tuple[RepSegment, DepthResult] | None = None,
 ) -> np.ndarray:
     cv2 = _import_cv2()
     image = frame.copy()
@@ -136,12 +141,29 @@ def draw_frame_depth(
         cv2.line(image, knee, ankle, color, 3)
 
     frame_text = f"frame: {label} | margin={margin:.3f}"
-    overall_text = f"overall: {overall_result.label} | bottom={overall_result.bottom_timestamp_ms / 1000:.2f}s" if overall_result else ""
-    cv2.rectangle(image, (12, 12), (min(width - 12, 780), 88), (0, 0, 0), -1)
+    if rep_info is not None:
+        segment, rep_result = rep_info
+        overall_text = f"rep {segment.rep_index}: {rep_result.label} | bottom={rep_result.bottom_timestamp_ms / 1000:.2f}s"
+    else:
+        overall_text = f"overall: {overall_result.label} | bottom={overall_result.bottom_timestamp_ms / 1000:.2f}s" if overall_result else ""
+    cv2.rectangle(image, (12, 12), (min(width - 12, 860), 88), (0, 0, 0), -1)
     cv2.putText(image, frame_text, (24, 43), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
     if overall_text:
         cv2.putText(image, overall_text, (24, 74), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (230, 230, 230), 2, cv2.LINE_AA)
     return image
+
+
+def _rep_info_for_index(
+    trace_index: int,
+    rep_segments: list[RepSegment] | None,
+    rep_results: list[DepthResult] | None,
+) -> tuple[RepSegment, DepthResult] | None:
+    if not rep_segments or not rep_results:
+        return None
+    for segment, result in zip(rep_segments, rep_results):
+        if segment.start_index <= trace_index <= segment.end_index:
+            return segment, result
+    return None
 
 
 def _label_color(label: str) -> tuple[int, int, int]:

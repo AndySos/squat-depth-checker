@@ -10,6 +10,7 @@ This document will collect literature notes, prototype links, compute notes, and
 - Treat pose estimates as a trajectory, not independent snapshots. Smooth short-term jitter, interpolate short gaps, and flag implausible jumps.
 - Use simple physical consistency checks, especially hip-knee and knee-ankle segment-length stability.
 - Treat the overall depth decision as sustained evidence near the squat bottom, not a single-frame threshold crossing. A lone depth frame away from the cleaned bottom phase is suspicious; consecutive reliable depth frames around the bottom should increase confidence.
+- For occluded multi-rep videos, reject implausible hip/knee values before smoothing, interpolate only short rejected/missing spans, and score each segmented rep separately.
 
 ## Hip Crease And Knee Caveat
 

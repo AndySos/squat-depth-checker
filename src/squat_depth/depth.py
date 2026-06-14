@@ -49,6 +49,7 @@ def analyze_depth(
     bottom_window: int = 2,
     max_bottom_flagged_fraction: float = 0.4,
     min_reliable_depth_run: int = 2,
+    analysis_window: tuple[int, int] | None = None,
 ) -> DepthResult:
     """Classify squat depth from sustained evidence near the bottom phase."""
 
@@ -58,15 +59,30 @@ def analyze_depth(
     knee = joints["knee"]
 
     hip_y = cleaned.landmarks[:, hip, 1]
-    if np.all(np.isnan(hip_y)):
+    if analysis_window is None:
+        window_start = 0
+        window_end = cleaned.frame_count - 1
+    else:
+        window_start = max(0, analysis_window[0])
+        window_end = min(cleaned.frame_count - 1, analysis_window[1])
+    if window_end < window_start:
+        return _uncertain(cleaned, side, "Invalid analysis window")
+
+    window_slice = slice(window_start, window_end + 1)
+    if np.all(np.isnan(hip_y[window_slice])):
         return _uncertain(cleaned, side, "No usable hip trajectory")
 
-    bottom_pos = int(np.nanargmax(hip_y))
+    bottom_pos = int(window_start + np.nanargmax(hip_y[window_slice]))
     start = max(0, bottom_pos - bottom_window)
     end = min(cleaned.frame_count, bottom_pos + bottom_window + 1)
     region = slice(start, end)
 
-    bottom_low_conf = np.any(cleaned.low_confidence[region, [hip, knee]], axis=1)
+    bottom_low_conf = np.any(
+        cleaned.low_confidence[region, [hip, knee]]
+        | cleaned.implausible[region, [hip, knee]]
+        | cleaned.long_occlusion[region, [hip, knee]],
+        axis=1,
+    )
     bottom_jumps = np.any(cleaned.jump_flags[region, [hip, knee]], axis=1)
     bottom_constraints = (
         constraints.frame_flags[region]
@@ -83,7 +99,12 @@ def analyze_depth(
     if constraints is not None:
         suspicious_count += int(constraints.frame_flags.sum())
 
-    all_low_conf = np.any(cleaned.low_confidence[:, [hip, knee]], axis=1)
+    all_low_conf = np.any(
+        cleaned.low_confidence[:, [hip, knee]]
+        | cleaned.implausible[:, [hip, knee]]
+        | cleaned.long_occlusion[:, [hip, knee]],
+        axis=1,
+    )
     all_jumps = np.any(cleaned.jump_flags[:, [hip, knee]], axis=1)
     all_constraints = (
         constraints.frame_flags
@@ -92,14 +113,17 @@ def analyze_depth(
     )
     all_flagged = all_low_conf | all_jumps | all_constraints | np.isnan(margins)
     reliable_depth = (margins > depth_margin) & ~all_flagged
-    reliable_depth_count = int(reliable_depth.sum())
-    max_depth_run = _max_true_run(reliable_depth)
+    reliable_depth_in_window = reliable_depth[window_slice]
+    reliable_depth_count = int(reliable_depth_in_window.sum())
+    max_depth_run = _max_true_run(reliable_depth_in_window)
     bottom_mask = np.zeros(cleaned.frame_count, dtype=bool)
     bottom_mask[region] = True
     bottom_reliable_depth = reliable_depth & bottom_mask
     bottom_depth_run = _max_true_run(bottom_reliable_depth)
     depth_run_overlaps_bottom = bottom_depth_run >= min_reliable_depth_run
-    any_depth_outside_bottom = bool(np.any(reliable_depth & ~bottom_mask))
+    analysis_mask = np.zeros(cleaned.frame_count, dtype=bool)
+    analysis_mask[window_slice] = True
+    any_depth_outside_bottom = bool(np.any(reliable_depth & analysis_mask & ~bottom_mask))
 
     if np.isnan(margin):
         label = "uncertain"
@@ -159,7 +183,12 @@ def frame_depth_trace(
     knee = joints["knee"]
 
     margins = cleaned.landmarks[:, hip, 1] - cleaned.landmarks[:, knee, 1]
-    low_conf = np.any(cleaned.low_confidence[:, [hip, knee]], axis=1)
+    low_conf = np.any(
+        cleaned.low_confidence[:, [hip, knee]]
+        | cleaned.implausible[:, [hip, knee]]
+        | cleaned.long_occlusion[:, [hip, knee]],
+        axis=1,
+    )
     jumps = np.any(cleaned.jump_flags[:, [hip, knee]], axis=1)
     constraint_flags = constraints.frame_flags if constraints is not None else np.zeros(cleaned.frame_count, dtype=bool)
     flagged = low_conf | jumps | constraint_flags | np.isnan(margins)

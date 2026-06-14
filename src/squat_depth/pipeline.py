@@ -9,6 +9,7 @@ from typing import Any
 from .constraints import evaluate_constraints
 from .depth import analyze_depth
 from .pose import run_pose_landmarker
+from .reps import analyze_reps
 from .temporal import clean_trajectory
 from .visualize import save_annotated_bottom_frame, save_annotated_video
 
@@ -26,6 +27,7 @@ def analyze_video(
     cleaned = clean_trajectory(frames)
     constraint_report = evaluate_constraints(cleaned)
     result = analyze_depth(cleaned, constraint_report)
+    rep_segments, rep_results = analyze_reps(cleaned, constraint_report)
     annotated_path = save_annotated_bottom_frame(
         video_path,
         cleaned,
@@ -37,11 +39,15 @@ def analyze_video(
         cleaned,
         result,
         constraints=constraint_report,
+        rep_segments=rep_segments,
+        rep_results=rep_results,
         output_path=output / "annotated_depth.mp4",
     )
 
     return {
         "result": asdict(result),
+        "rep_segments": [asdict(segment) for segment in rep_segments],
+        "rep_results": [asdict(rep_result) for rep_result in rep_results],
         "annotated_bottom_frame": str(annotated_path),
         "annotated_video": str(annotated_video_path),
         "frame_count": cleaned.frame_count,

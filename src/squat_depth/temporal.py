@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-from .pose import LandmarkFrame
+from .pose import LEFT_HIP, LEFT_KNEE, RIGHT_HIP, RIGHT_KNEE, LandmarkFrame
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,9 @@ class CleanedPose:
     timestamps_ms: np.ndarray
     frame_indices: np.ndarray
     low_confidence: np.ndarray
+    implausible: np.ndarray
     interpolated: np.ndarray
+    long_occlusion: np.ndarray
     jump_flags: np.ndarray
 
     @property
@@ -33,8 +35,10 @@ def clean_trajectory(
     max_gap: int = 5,
     median_window: int = 5,
     jump_threshold: float = 0.12,
+    plausibility_velocity_threshold: float = 0.16,
+    standing_baseline_frames: int = 60,
 ) -> CleanedPose:
-    """Interpolate short gaps, smooth jitter, and flag large joint jumps."""
+    """Reject implausible points, interpolate short gaps, smooth, and flag jumps."""
 
     if not frames:
         raise ValueError("At least one landmark frame is required")
@@ -45,10 +49,17 @@ def clean_trajectory(
     frame_indices = np.array([frame.frame_index for frame in frames], dtype=int)
 
     low_confidence = (visibility < min_visibility) | np.isnan(raw[:, :, 0])
+    implausible = flag_implausible_landmarks(
+        raw,
+        low_confidence,
+        baseline_frames=standing_baseline_frames,
+        velocity_threshold=plausibility_velocity_threshold,
+    )
     masked = raw.copy()
-    masked[low_confidence] = np.nan
+    masked[low_confidence | implausible] = np.nan
 
     interpolated_values, interpolated_flags = interpolate_short_gaps(masked, max_gap=max_gap)
+    long_occlusion = flag_long_occlusions(masked, max_gap=max_gap)
     smoothed = rolling_nanmedian(interpolated_values, window=median_window)
     jump_flags = flag_large_jumps(smoothed, threshold=jump_threshold)
 
@@ -59,9 +70,60 @@ def clean_trajectory(
         timestamps_ms=timestamps,
         frame_indices=frame_indices,
         low_confidence=low_confidence,
+        implausible=implausible,
         interpolated=interpolated_flags,
+        long_occlusion=long_occlusion,
         jump_flags=jump_flags,
     )
+
+
+def flag_implausible_landmarks(
+    values: np.ndarray,
+    invalid: np.ndarray,
+    baseline_frames: int = 60,
+    velocity_threshold: float = 0.10,
+) -> np.ndarray:
+    """Flag squat-specific hip/knee outliers before interpolation."""
+
+    flags = np.zeros(values.shape[:2], dtype=bool)
+    tracked_joints = (LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE)
+    frame_limit = min(values.shape[0], baseline_frames)
+    if frame_limit <= 0:
+        return flags
+
+    for joint in tracked_joints:
+        y = values[:, joint, 1]
+        valid = (~invalid[:, joint]) & ~np.isnan(y)
+        baseline_valid = valid[:frame_limit]
+        if np.any(baseline_valid):
+            baseline_stable = baseline_valid.copy()
+            baseline_points = values[:frame_limit, joint, :2]
+            for frame_index in range(1, frame_limit):
+                if not baseline_valid[frame_index] or not baseline_valid[frame_index - 1]:
+                    continue
+                delta = float(np.linalg.norm(baseline_points[frame_index] - baseline_points[frame_index - 1]))
+                if delta > velocity_threshold:
+                    baseline_stable[frame_index] = False
+            baseline_values = y[:frame_limit][baseline_stable]
+            if len(baseline_values) == 0:
+                baseline_values = y[:frame_limit][baseline_valid]
+            baseline_y = float(np.nanpercentile(baseline_values, 5))
+            max_raise = 0.08 if joint in (LEFT_HIP, RIGHT_HIP) else 0.07
+            flags[:, joint] |= valid & (y < baseline_y - max_raise)
+
+        previous_good = None
+        for frame_index in range(values.shape[0]):
+            if not valid[frame_index]:
+                continue
+            point = values[frame_index, joint, :2]
+            if previous_good is not None:
+                delta = float(np.linalg.norm(point - previous_good))
+                if delta > velocity_threshold:
+                    flags[frame_index, joint] = True
+                    continue
+            previous_good = point
+
+    return flags
 
 
 def interpolate_short_gaps(values: np.ndarray, max_gap: int = 5) -> tuple[np.ndarray, np.ndarray]:
@@ -97,6 +159,25 @@ def interpolate_short_gaps(values: np.ndarray, max_gap: int = 5) -> tuple[np.nda
     # Preserve leading/trailing NaNs; they are not anchored by two good frames.
     _ = frame_count
     return filled, interpolated
+
+
+def flag_long_occlusions(values: np.ndarray, max_gap: int = 5) -> np.ndarray:
+    """Flag NaN runs too long to interpolate."""
+
+    long = np.zeros(values.shape[:2], dtype=bool)
+    frame_count, joint_count = values.shape[:2]
+    for joint in range(joint_count):
+        missing = np.isnan(values[:, joint, 0])
+        start = None
+        for frame_index, is_missing in enumerate(missing):
+            if is_missing and start is None:
+                start = frame_index
+            if (not is_missing or frame_index == frame_count - 1) and start is not None:
+                end = frame_index if not is_missing else frame_index + 1
+                if end - start > max_gap:
+                    long[start:end, joint] = True
+                start = None
+    return long
 
 
 def rolling_nanmedian(values: np.ndarray, window: int = 5) -> np.ndarray:
